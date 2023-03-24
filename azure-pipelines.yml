@@ -1,0 +1,64 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+stages:
+  - stage: Buildstage
+    jobs:
+      - job: Buildjob
+        pool:
+          vmimage: Ubuntu-latest
+        steps:
+        - task: Docker@1
+          inputs:
+            containerregistrytype: 'Container Registry'
+            dockerRegistryEndpoint: 'docker-connection'
+            command: 'Build an image'
+            dockerFile: 'dotnetapp/Dockerfile'
+            imageName: 'dotnet:$(Build.BuildId)'
+        - task: Docker@1
+          inputs:
+            containerregistrytype: 'Container Registry'
+            dockerRegistryEndpoint: 'docker-connection'
+            command: 'Push an image'
+            imageName: 'dotnet:$(Build.BuildId)'
+        - task: CopyFiles@1
+          inputs:
+            SourceFolder: 'kubernetes'
+            Contents: '**'
+            TargetFolder: '$(Build.ArtifactStagingDirectory)'
+        - task: PublishBuildArtifacts@1
+          inputs:
+            PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+            ArtifactName: 'drop'
+            publishLocation: 'Container'
+  - stage: deployment
+    jobs:
+      - job: devjob
+        pool:
+          vmimage: Ubuntu-latest
+        steps:
+          - download: current
+            artifact: drop
+          - task: KubernetesManifest@0
+            inputs:
+              action: 'createSecret'
+              kubernetesServiceConnection: 'kuberenets'
+              secretType: 'dockerRegistry'
+              secretName: 'acr-secret1'
+              dockerRegistryEndpoint: 'docker-connection'
+          - task: KubernetesManifest@0
+            inputs:
+              action: 'deploy'
+              kubernetesServiceConnection: 'kuberenets'
+              manifests: 'kubernetes/deployment.yaml'
+              containers: 'kaleshaaks.azurecr.io/dotnet:$(Build.BuildId)'
+              imagePullSecrets: 'acr-secret1'
+          - task: KubernetesManifest@0
+            inputs:
+              action: 'deploy'
+              kubernetesServiceConnection: 'kuberenets'
+              manifests: 'kubernetes/service.yaml'
